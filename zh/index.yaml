@@ -1,0 +1,8 @@
+language: "zh"
+name: "Chinese"
+sources:
+  - id: "hongxiu_entrepreneur"
+    name: "Hongxiu - Entrepreneur Tycoon"
+    version: "1.0.0"
+    url: "https://raw.githubusercontent.com/roshan9410/Novela/refs/heads/main/zh/hongxiu_entrepreneur.lua"
+    language: "zh"
