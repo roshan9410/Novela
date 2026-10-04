@@ -6,3 +6,8 @@ sources:
     version: "1.0.0"
     url: "https://raw.githubusercontent.com/roshan9410/Novela/refs/heads/main/zh/hongxiu_entrepreneur.lua"
     language: "zh"
+  - id: "readnovel_entrepreneur"
+    name: "ReadNovel - Entrepreneur Tycoon"
+    version: "1.0.0"
+    url: "https://raw.githubusercontent.com/roshan9410/Novela/refs/heads/main/zh/readnovel_entrepreneur.lua"
+    language: "zh"
