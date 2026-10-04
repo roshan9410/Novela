@@ -5,7 +5,7 @@ baseUrl = "https://www.readnovel.com"
 language = "zh"
 charset = "UTF-8"
 
-local bookUrl = baseUrl .. "/bookquery/zfiqclmiurrh"
+local bookUrl = baseUrl .. "/bookquery/zfiqclmiurjd"
 local bookTitle = "让你创业亏钱，结果你成首富了？"
 
 local function absUrl(href)
