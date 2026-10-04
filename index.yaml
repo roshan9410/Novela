@@ -1,0 +1,4 @@
+languages:
+  zh:
+    name: "Chinese"
+    url: "https://raw.githubusercontent.com/roshan9410/Novela/refs/heads/main/zh/index.yaml"
