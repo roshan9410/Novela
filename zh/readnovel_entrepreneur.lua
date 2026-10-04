@@ -1,9 +1,10 @@
 id = "readnovel_entrepreneur"
 name = "ReadNovel - Entrepreneur Tycoon"
-version = "1.0.0"
+version = "1.0.2"
 baseUrl = "https://www.readnovel.com"
 language = "zh"
 charset = "UTF-8"
+icon = "https://www.google.com/s2/favicons?sz=128&domain=readnovel.com"
 
 local bookUrl = baseUrl .. "/bookquery/zfiqclmiurjd"
 local bookTitle = "让你创业亏钱，结果你成首富了？"
@@ -14,12 +15,11 @@ local function absUrl(href)
     if string.sub(href, 1, 7) == "http://" or string.sub(href, 1, 8) == "https://" then
         return href
     end
-    if string.sub(href, 1, 1) == "/" then return baseUrl .. href end
-    return baseUrl .. "/" .. href
+    return url_resolve(baseUrl, href)
 end
 
 local function fetchBookPage(url)
-    local r = http_get(url)
+    local r = http_get(url, { charset = "UTF-8" })
     if not r.success then return nil end
     return r.body
 end
@@ -83,22 +83,59 @@ end
 function getBookStatus(url)
     local html = fetchBookPage(url)
     if not html then return nil end
+    local status = html_attr(html, "meta[property='og:novel:status']", "content")
+    if status and status ~= "" then return status end
     local text = string_clean(html)
     if string.find(text, "完结", 1, true) then return "完结" end
     if string.find(text, "连载", 1, true) then return "连载" end
     return nil
 end
 
+-- ReadNovel has changed its catalog markup across desktop/mobile versions.
+-- Prefer known catalog containers, then fall back to all chapter-looking links.
 function getChapterList(url)
     local html = fetchBookPage(url)
     if not html then return {} end
 
     local chapters = {}
-    for _, a in ipairs(html_select(html, ".volume > ul > li > a")) do
+    local seen = {}
+
+    local selectors = {
+        ".volume > ul > li > a",
+        ".volume a",
+        ".catalog a",
+        ".chapter-list a",
+        ".book-list a",
+        ".directory a",
+        "ul li a"
+    }
+
+    local function addLink(a)
         local href = a.href
         local title = string_clean(a.text)
-        if href and href ~= "" and title ~= "" then
-            table.insert(chapters, { title = title, url = absUrl(href) })
+        if not href or href == "" or title == "" then return end
+        if not string.match(title, "第%s*[%d一二三四五六七八九十百千万]+%s*章")
+            and not string.match(title, "Chapter%s+%d+") then
+            return
+        end
+        local u = absUrl(href)
+        if u == "" or seen[u] then return end
+        seen[u] = true
+        table.insert(chapters, { title = title, url = u })
+    end
+
+    for _, selector in ipairs(selectors) do
+        for _, a in ipairs(html_select(html, selector)) do
+            addLink(a)
+        end
+        if #chapters >= 1 then break end
+    end
+
+    -- Last-resort scan of every anchor. This handles markup changes where the
+    -- chapter list no longer lives under .volume/.catalog.
+    if #chapters == 0 then
+        for _, a in ipairs(html_select(html, "a")) do
+            addLink(a)
         end
     end
 
@@ -106,17 +143,47 @@ function getChapterList(url)
 end
 
 function getChapterText(html, url)
-    local content = html_select_first(html, ".read-content")
-    if not content then
-        content = html_select_first(html, ".chapter-content")
-    end
-    if not content then return nil end
+    -- Try the common ReadNovel reader containers first, then several
+    -- alternative layouts used by desktop/mobile mirrors.
+    local selectors = {
+        ".read-content",
+        ".chapter-content",
+        ".txtnav",
+        "#content",
+        ".content",
+        "article",
+        "main",
+        ".read",
+        ".chapter",
+        ".txt"
+    }
 
-    local cleaned = html_remove(content.html,
-        "script,style,.read-chapter-download,.download-bar,.ad,.ads,.advertisement"
+    local content = nil
+    for _, selector in ipairs(selectors) do
+        content = html_select_first(html, selector)
+        if content then break end
+    end
+
+    if not content then
+        -- Avoid returning the whole navigation page unless there is genuinely
+        -- no better reader container.
+        return nil
+    end
+
+    local inner = content.html or ""
+    local cleaned = html_remove(inner,
+        "script,style,nav,header,footer,.read-chapter-download,.download-bar,.ad,.ads,.advertisement,.visible-xs"
     )
-    local el = html_select_first(cleaned, ".read-content")
-    if not el then el = html_select_first(cleaned, ".chapter-content") end
-    if not el then return html_text(cleaned) end
-    return html_text(el.html)
+
+    local text = html_text(cleaned)
+    text = string_normalize(text)
+    text = string_trim(text)
+
+    -- Remove common chapter-heading / site-noise prefixes without touching
+    -- the story body.
+    text = regex_replace(text, "(?i)^\\s*(第[0-9一二三四五六七八九十百千万]+章[^\\n\\r]*[\\n\\r]+)+", "")
+    text = string_trim(text)
+
+    if text == "" then return nil end
+    return text
 end
