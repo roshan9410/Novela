@@ -1,9 +1,10 @@
 id = "hongxiu_entrepreneur"
 name = "Hongxiu - Entrepreneur Tycoon"
-version = "1.0.0"
+version = "1.0.1"
 baseUrl = "https://www.hongxiu.com"
 language = "zh"
 charset = "UTF-8"
+icon = "https://www.google.com/s2/favicons?sz=128&domain=hongxiu.com"
 
 local bookUrl = baseUrl .. "/bookquery/zfiqclpetuen"
 local bookTitle = "让你创业亏钱，结果你成首富了？"
@@ -14,69 +15,31 @@ local function absUrl(href)
     if string.sub(href, 1, 7) == "http://" or string.sub(href, 1, 8) == "https://" then
         return href
     end
-    if string.sub(href, 1, 1) == "/" then return baseUrl .. href end
-    return baseUrl .. "/" .. href
+    return url_resolve(baseUrl, href)
 end
 
 local function fetchBookPage(url)
-    local r = http_get(url)
+    local r = http_get(url, { charset = "UTF-8" })
     if not r.success then return nil end
     return r.body
 end
 
 function getCatalogList(index)
-    if index > 0 then
-        return { items = {}, hasNext = false }
-    end
-    return {
-        items = {
-            {
-                title = bookTitle,
-                url = bookUrl,
-                cover = nil
-            }
-        },
-        hasNext = false
-    }
+    if index > 0 then return { items = {}, hasNext = false } end
+    return { items = { { title = bookTitle, url = bookUrl, cover = nil } }, hasNext = false }
 end
 
 function getCatalogSearch(index, query)
-    if index > 0 then
-        return { items = {}, hasNext = false }
-    end
-
+    if index > 0 then return { items = {}, hasNext = false } end
     local q = string.lower(query or "")
     local titleLower = string.lower(bookTitle)
-    if q == "" or string.find(titleLower, q, 1, true) then
-        return {
-            items = {
-                {
-                    title = bookTitle,
-                    url = bookUrl,
-                    cover = nil
-                }
-            },
-            hasNext = false
-        }
-    end
-
-    -- Also match the distinctive Chinese keywords users commonly search.
-    if string.find(q, "创业", 1, true)
+    if q == "" or string.find(titleLower, q, 1, true)
+        or string.find(q, "创业", 1, true)
         or string.find(q, "亏钱", 1, true)
         or string.find(q, "首富", 1, true)
         or string.find(q, "王列", 1, true) then
-        return {
-            items = {
-                {
-                    title = bookTitle,
-                    url = bookUrl,
-                    cover = nil
-                }
-            },
-            hasNext = false
-        }
+        return { items = { { title = bookTitle, url = bookUrl, cover = nil } }, hasNext = false }
     end
-
     return { items = {}, hasNext = false }
 end
 
@@ -84,6 +47,8 @@ function getBookTitle(url)
     local html = fetchBookPage(url)
     if not html then return bookTitle end
     local el = html_select_first(html, "h1 > em")
+    if el then return string_clean(el.text) end
+    el = html_select_first(html, "h1")
     return el and string_clean(el.text) or bookTitle
 end
 
@@ -107,6 +72,8 @@ end
 function getBookStatus(url)
     local html = fetchBookPage(url)
     if not html then return nil end
+    local status = html_attr(html, "meta[property='og:novel:status']", "content")
+    if status and status ~= "" then return status end
     local text = string_clean(html)
     if string.find(text, "完结", 1, true) then return "完结" end
     if string.find(text, "连载", 1, true) then return "连载" end
@@ -118,32 +85,70 @@ function getChapterList(url)
     if not html then return {} end
 
     local chapters = {}
-    for _, a in ipairs(html_select(html, ".volume > ul > li > a")) do
+    local seen = {}
+
+    local function addLink(a)
         local href = a.href
         local title = string_clean(a.text)
-        if href and href ~= "" and title ~= "" then
-            table.insert(chapters, {
-                title = title,
-                url = absUrl(href)
-            })
-        end
+        if not href or href == "" or title == "" then return end
+        if not string.match(title, "第%s*[%d一二三四五六七八九十百千万]+%s*章")
+            and not string.match(title, "Chapter%s+%d+") then return end
+        local u = absUrl(href)
+        if u == "" or seen[u] then return end
+        seen[u] = true
+        table.insert(chapters, { title = title, url = u })
+    end
+
+    local selectors = {
+        ".volume > ul > li > a",
+        ".volume a",
+        ".catalog a",
+        ".chapter-list a",
+        ".book-list a",
+        ".directory a",
+        "ul li a"
+    }
+
+    for _, selector in ipairs(selectors) do
+        for _, a in ipairs(html_select(html, selector)) do addLink(a) end
+        if #chapters > 0 then break end
+    end
+
+    if #chapters == 0 then
+        for _, a in ipairs(html_select(html, "a")) do addLink(a) end
     end
 
     return chapters
 end
 
 function getChapterText(html, url)
-    local content = html_select_first(html, ".read-content")
-    if not content then
-        return nil
-    end
+    local selectors = {
+        ".read-content",
+        ".chapter-content",
+        ".txtnav",
+        "#content",
+        ".content",
+        "article",
+        "main",
+        ".read",
+        ".chapter",
+        ".txt"
+    }
 
-    -- Hongxiu chapter pages may contain advertising/download elements inside
-    -- the reading container. Remove common non-story blocks before extraction.
-    local cleaned = html_remove(content.html,
-        "script,style,.read-chapter-download,.download-bar,.ad,.ads,.advertisement"
+    local content = nil
+    for _, selector in ipairs(selectors) do
+        content = html_select_first(html, selector)
+        if content then break end
+    end
+    if not content then return nil end
+
+    local inner = content.html or ""
+    local cleaned = html_remove(inner,
+        "script,style,nav,header,footer,.read-chapter-download,.download-bar,.ad,.ads,.advertisement,.visible-xs"
     )
-    local el = html_select_first(cleaned, ".read-content")
-    if not el then return "" end
-    return html_text(el.html)
+
+    local text = string_normalize(html_text(cleaned))
+    text = string_trim(text)
+    if text == "" then return nil end
+    return text
 end
