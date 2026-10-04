@@ -143,5 +143,7 @@ function getChapterText(html, url)
     local cleaned = html_remove(content.html,
         "script,style,.read-chapter-download,.download-bar,.ad,.ads,.advertisement"
     )
-    return string_trim(html_to_text(cleaned))
+    local el = html_select_first(cleaned, ".read-content")
+    if not el then return "" end
+    return html_text(el.html)
 end
